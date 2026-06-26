@@ -3212,6 +3212,36 @@ class DeltaFormatSharingSourceSuite
     }
   }
 
+  test("DTS-7010: commit cleanup keeps the prior version's metadata block when mid-version") {
+    // The end-to-end DELTA_MISSING_CHANGE_DATA symptom only reproduces in the DBRIT suite (the mock
+    // rebuilds the synthetic log per query, masking the cleanup), so assert the cleanup decision.
+    withTempDir { tempDir =>
+      val deltaTableName = "delta_table_cleanup_max_version"
+      withTable(deltaTableName) {
+        createTable(deltaTableName)
+        val sharedTableName = "shared_cleanup_max_version"
+        prepareMockedClientMetadata(deltaTableName, sharedTableName)
+        prepareMockedClientGetTableVersion(deltaTableName, sharedTableName)
+        val profileFile = prepareProfileFile(tempDir)
+        withSQLConf(getDeltaSharingClassesSQLConf.toSeq: _*) {
+          val source = getSource(
+            Map("path" -> s"${profileFile.getCanonicalPath}#share1.default.$sharedTableName")
+          )
+
+          assert(source.cleanupMaxVersionForCommit(
+            makeOffset(version = 5, index = DeltaSourceOffset.BASE_INDEX)) === 4L)
+          assert(source.cleanupMaxVersionForCommit(
+            makeOffset(version = 5, index = 2L)) === 3L)
+          // First data commit: cleanup goes negative and is skipped, so v0 metadata survives.
+          assert(source.cleanupMaxVersionForCommit(
+            makeOffset(version = 1, index = 1L)) === -1L)
+
+          cleanUpDeltaSharingBlocks()
+        }
+      }
+    }
+  }
+
   // Tests for Trigger.AvailableNow with native SupportsTriggerAvailableNow implementation.
 
   private val disableAvailableNowWorkaround = Map.empty[String, String]

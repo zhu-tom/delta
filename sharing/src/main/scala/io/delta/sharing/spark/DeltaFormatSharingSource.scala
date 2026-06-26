@@ -1101,9 +1101,19 @@ case class DeltaFormatSharingSource(
     // Clean up processed versions in block manager regardless
     // of whether endOffset is from legacy format.
     DeltaSharingLogFileSystem.tryToCleanUpPreviousBlocks(
-      deltaLogPath,
+      deltaLogPath, cleanupMaxVersionForCommit(endOffset))
+  }
+
+  // Mid-version (index > BASE_INDEX) must keep (reservoirVersion-1).json: the next batch's
+  // getSnapshotAt(reservoirVersion) reads the table metadata from it, so removing it early leaves
+  // only the empty fake checkpoint and throws DELTA_MISSING_CHANGE_DATA. At a boundary the prior
+  // version is fully processed and safe to remove.
+  private[spark] def cleanupMaxVersionForCommit(endOffset: DeltaSourceOffset): Long = {
+    if (endOffset.index == DeltaSourceOffset.BASE_INDEX) {
       endOffset.reservoirVersion - 1
-    )
+    } else {
+      endOffset.reservoirVersion - 2
+    }
   }
 
   override def toString(): String = s"DeltaFormatSharingSource[${table.toString}]"
